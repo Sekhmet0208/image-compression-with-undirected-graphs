@@ -1,12 +1,9 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <math.h>
+#include <string.h>
 
-#define MAX 1000000
-
-// Structure pixel de l'image
-typedef struct
-{
+typedef struct {
     int rouge;
     int vert;
     int bleu;
@@ -14,303 +11,249 @@ typedef struct
     int col;
 } pixel;
 
-// Structure noeud du graphe
-typedef struct node
-{
-    int num;
-    int vu;
-    pixel *pt;
-    struct arete *next;
-} noeud;
-
-// Structure arete du graphe
-typedef struct arete
-{
-    noeud *pt;
+struct noeud;
+typedef struct arete {
+    struct noeud *pt;
     float poids;
     struct arete *suiv;
 } arete;
+typedef struct noeud {
+    int num;
+    int region;
+    pixel *pt;
+    arete *edges;
+} noeud;
+noeud *legraphe = NULL;
 
-// Graphe étant ici un tableau de noeud
-noeud legraphe[MAX];
-
-// On calcule la différence de couleur entre deux pixels
-float diff_couleur(pixel *p1, pixel *p2)
-{
-    if (p1 == NULL)
-    {
-        printf("Erreur : p1 est NULL\n");
-        return 0;
-    }
-
+float diff_couleur(pixel *p1, pixel *p2) {
+    if (!p1 || !p2) { fprintf(stderr, "Erreur : un pixel est NULL\n"); return 0; }
     int dr = p1->rouge - p2->rouge;
     int dg = p1->vert - p2->vert;
     int db = p1->bleu - p2->bleu;
     return sqrt(dr * dr + dg * dg + db * db);
 }
 
-// Fonction pour ajouter une arete entre deux pixels voisins dans le graphe
-void ajouter_arete(noeud *n1, noeud *n2, float poids)
-{
+void ajouter_arete(noeud *n1, noeud *n2, float poids) {
     arete *edge = malloc(sizeof(arete));
+    if (!edge) { fprintf(stderr, "Erreur d'allocation mémoire pour une arete\n"); exit(1); }
     edge->pt = n2;
     edge->poids = poids;
-    edge->suiv = n1->next;
-    n1->next = edge;
-}
-void parcours(noeud *node, int region)
-{
-    if (node->next == NULL)
-    {
-        return;
-    }
-
-    node->vu = region;
-
-    arete *edge = node->next;
-
-    while (edge)
-    {
-        if (!edge->pt->vu)
-        {
-            parcours(edge->pt, region);
-        }
-        edge = edge->suiv;
-    }
+    edge->suiv = n1->edges;
+    n1->edges = edge;
 }
 
-// Fonction pour ajouter les aretes du graphe entre les pixels voisins
-void creer_graphe(pixel *pixels, int width, int height, float seuil)
-{
-
-    if (pixels == NULL)
-    {
-        fprintf(stderr, "Error: pixels est NULL\n");
-        exit(1);
+void free_graph(noeud *graph, int num_nodes) {
+    for (int i = 0; i < num_nodes; i++) {
+        arete *edge = graph[i].edges;
+        while (edge) { arete *tmp = edge; edge = edge->suiv; free(tmp); }
     }
+    free(graph);
+}
 
-    if (width <= 0 || height <= 0)
-    {
-        fprintf(stderr, "Error: width ou height invalide\n");
-        exit(1);
-    }
-
-    // On initialise les noeuds dans le graphe
-    for (int i = 0; i < width * height; i++)
-    {
+void creer_graphe(pixel *pixels, int width, int height, float seuil) {
+    int num_nodes = width * height;
+    legraphe = malloc(num_nodes * sizeof(noeud));
+    if (!legraphe) { fprintf(stderr, "Erreur d'allocation mémoire pour le graphe\n"); exit(1); }
+    for (int i = 0; i < num_nodes; i++) {
         legraphe[i].num = i;
-        legraphe[i].vu = 0;
+        legraphe[i].region = 0;
         legraphe[i].pt = &pixels[i];
-        legraphe[i].next = NULL;
+        legraphe[i].edges = NULL;
     }
-
-    // on rajoute les aretes
-    for (int i = 0; i < width * height; i++)
-    {
-        // on recupere les colonnes et lignes du pixel courant
-        int row = i / width;
-        int col = i % width;
-
-        // on ajoute une arete au voisin de droite s'il y en a un
-        if (col < width - 1)
-        {
-            float poids = diff_couleur(&pixels[i], &pixels[i + 1]);
-            if (poids <= seuil)
-            {
-                ajouter_arete(&legraphe[i], &legraphe[i + 1], poids);
+    for (int i = 0; i < num_nodes; i++) {
+        int row = i / width, col = i % width;
+        if (col < width - 1) {
+            float poids = diff_couleur(&pixels[i], &pixels[i+1]);
+            if (poids <= seuil) {
+                ajouter_arete(&legraphe[i], &legraphe[i+1], poids);
+                ajouter_arete(&legraphe[i+1], &legraphe[i], poids);
             }
         }
-
-        // on ajoute une arete au voisin du bas s'il y en a un
-        if (row < height - 1)
-        {
-            float poids = diff_couleur(&pixels[i], &pixels[i + width]);
-            if (poids <= seuil)
-            {
-                ajouter_arete(&legraphe[i], &legraphe[i + width], poids);
+        if (row < height - 1) {
+            float poids = diff_couleur(&pixels[i], &pixels[i+width]);
+            if (poids <= seuil) {
+                ajouter_arete(&legraphe[i], &legraphe[i+width], poids);
+                ajouter_arete(&legraphe[i+width], &legraphe[i], poids);
             }
         }
     }
 }
 
-// compresser l'image en utilisant les pixels voisins
-void compresser_image(pixel *pixels, int width, int height, float seuil)
-{
+void parcours_iteratif(noeud *start, int region, int num_nodes) {
+    noeud **stack = malloc(num_nodes * sizeof(noeud *));
+    if (!stack) { fprintf(stderr, "Erreur d'allocation mémoire pour le stack\n"); exit(1); }
+    int top = 0;
+    stack[top++] = start;
+    while (top > 0) {
+        noeud *current = stack[--top];
+        if (current->region != 0) continue;
+        current->region = region;
+        for (arete *edge = current->edges; edge; edge = edge->suiv) {
+            if (edge->pt->region == 0) stack[top++] = edge->pt;
+        }
+    }
+    free(stack);
+}
+
+void compresser_image(pixel *pixels, int width, int height, float seuil) {
     creer_graphe(pixels, width, height, seuil);
-
-    int region = 0;
-    for (int i = 0; i < width * height; i++)
-    {
-        if (!legraphe[i].vu)
-        {
-            region++;
-            parcours(&legraphe[i], region);
-        }
+    int num_nodes = width * height, region = 0;
+    for (int i = 0; i < num_nodes; i++) {
+        if (legraphe[i].region == 0) { region++; parcours_iteratif(&legraphe[i], region, num_nodes); }
     }
 }
 
-// ouvrir le fichier ppm
-FILE *open_ppm(char *filename)
-{
-    FILE *fp = fopen(filename, "rb");
-    if (!fp)
-    {
-        printf("Unable to open file %s\n", filename);
-        exit(1);
+void appliquer_compression(pixel *pixels, int width, int height) {
+    int num_nodes = width * height, max_region = 0;
+    for (int i = 0; i < num_nodes; i++) {
+        if (legraphe[i].region > max_region)
+            max_region = legraphe[i].region;
     }
+    long *sumR = calloc(max_region+1, sizeof(long));
+    long *sumG = calloc(max_region+1, sizeof(long));
+    long *sumB = calloc(max_region+1, sizeof(long));
+    int *count = calloc(max_region+1, sizeof(int));
+    if (!sumR || !sumG || !sumB || !count) { fprintf(stderr, "Erreur d'allocation mémoire pour le calcul des moyennes\n"); exit(1); }
+    for (int i = 0; i < num_nodes; i++) {
+        int reg = legraphe[i].region;
+        if (reg > 0) {
+            sumR[reg] += pixels[i].rouge;
+            sumG[reg] += pixels[i].vert;
+            sumB[reg] += pixels[i].bleu;
+            count[reg]++;
+        }
+    }
+    for (int i = 0; i < num_nodes; i++) {
+        int reg = legraphe[i].region;
+        if (reg > 0 && count[reg] > 0) {
+            int avgR = sumR[reg] / count[reg];
+            int avgG = sumG[reg] / count[reg];
+            int avgB = sumB[reg] / count[reg];
+            pixels[i].rouge = avgR;
+            pixels[i].vert = avgG;
+            pixels[i].bleu = avgB;
+        }
+    }
+    free(sumR);
+    free(sumG);
+    free(sumB);
+    free(count);
+}
+
+FILE *open_ppm(const char *filename) {
+    FILE *fp = fopen(filename, "rb");
+    if (!fp) { fprintf(stderr, "Impossible d'ouvrir le fichier %s\n", filename); exit(1); }
     return fp;
 }
 
-void sauvegarder_image_compressee(char *nom_fichier, pixel *pixels, int width, int height)
-{
-
-    FILE *fp = fopen(nom_fichier, "wb");
-    if (!fp)
-    {
-        printf("Impossible d'ouvrir le fichier %s en écriture\n", nom_fichier);
-        return;
-    }
-    fprintf(fp, "P6\n%d %d\n%d\n", width, height, 255);
-
-    for (int i = 0; i < width * height; i++)
-    {
-        fwrite(&pixels[i].rouge, 1, 1, fp);
-        fwrite(&pixels[i].vert, 1, 1, fp);
-        fwrite(&pixels[i].bleu, 1, 1, fp);
-    }
-
-    fclose(fp);
+void read_ppm_header(FILE *fp, int *width, int *height, int *maxval) {
+    char magic[3];
+    if (fscanf(fp, "%2s", magic) != 1) { fprintf(stderr, "Erreur lors de la lecture du format de l'image\n"); exit(1); }
+    if (strcmp(magic, "P6") != 0) { fprintf(stderr, "Format d'image non supporté (doit être P6)\n"); exit(1); }
+    int c = fgetc(fp);
+    while (c == '#') { while (c != '\n' && c != EOF) c = fgetc(fp); c = fgetc(fp); }
+    ungetc(c, fp);
+    if (fscanf(fp, "%d %d", width, height) != 2) { fprintf(stderr, "Erreur lors de la lecture des dimensions\n"); exit(1); }
+    if (fscanf(fp, "%d", maxval) != 1) { fprintf(stderr, "Erreur lors de la lecture de la valeur maximale\n"); exit(1); }
+    fgetc(fp);
 }
 
-pixel *create_pixels(FILE *fp, int width, int height)
-{
-    pixel *pixels = malloc(width * height * sizeof(pixel));
-    if (!pixels)
-    {
-        printf("Error allocating memory for pixels\n");
-        exit(1);
-    }
-    for (int i = 0; i < width * height; i++)
-    {
-        fread(&pixels[i].rouge, 1, 1, fp);
-        fread(&pixels[i].vert, 1, 1, fp);
-        fread(&pixels[i].bleu, 1, 1, fp);
+pixel *create_pixels(FILE *fp, int width, int height) {
+    int num_pixels = width * height;
+    pixel *pixels = malloc(num_pixels * sizeof(pixel));
+    if (!pixels) { fprintf(stderr, "Erreur d'allocation mémoire pour les pixels\n"); exit(1); }
+    for (int i = 0; i < num_pixels; i++) {
+        int r = fgetc(fp), g = fgetc(fp), b = fgetc(fp);
+        if (r == EOF || g == EOF || b == EOF) { fprintf(stderr, "Erreur lors de la lecture des pixels\n"); free(pixels); exit(1); }
+        pixels[i].rouge = r;
+        pixels[i].vert = g;
+        pixels[i].bleu = b;
         pixels[i].row = i / width;
         pixels[i].col = i % width;
     }
     return pixels;
 }
 
-void read_ppm_header(FILE *fp, int *width, int *height, int *maxval)
-{
-    char lebronjames[3];
-    fscanf(fp, "%s %d %d %d", lebronjames, width, height, maxval);
-    printf("%s %d %d %d", lebronjames, *width, *height, *maxval);
-
-    if (lebronjames[0] != 'P' || (lebronjames[1] != '3' && lebronjames[1] != '6' && lebronjames[1] != '7'))
-    {
-        fprintf(stderr, "Invalid image format (must be 'P3', 'P6', or 'P7')\n");
-        exit(1);
-    }
-}
-
-void generer_image_compressee(pixel *pixels, int width, int height, float seuil)
-{
-    compresser_image(pixels, width, height, seuil);
-
-    // on stocke l'image compressee
-    pixel *compressed_image = malloc(width * height * sizeof(pixel));
-    if (compressed_image == NULL)
-    {
-        fprintf(stderr, "Error: unable to allocate memory for compressed_image\n");
-        return;
-    }
-
-    // on assigne une couleur a chaque region
-    for (int i = 0; i < width * height; i++)
-    {
-        pixel *p = &pixels[i];
-        int r = p->rouge;
-        int g = p->vert;
-        int b = p->bleu;
-        compressed_image[i] = (pixel){r, g, b, p->row, p->col};
-    }
-
-    sauvegarder_image_compressee("compressed.ppm", compressed_image, width, height);
-
-    free(compressed_image);
-}
-
-void decompresser_image(pixel *pixels, int width, int height)
-{
-    int region = 1;
-    pixel *decompressed_image = malloc(width * height * sizeof(pixel));
-    if (decompressed_image == NULL)
-    {
-        fprintf(stderr, "Error: unable to allocate memory for decompressed_image\n");
-        return;
-    }
-    for (int i = 0; i < width * height; i++)
-    {
-        noeud *node = &legraphe[i];
-        if (!node->vu)
+void sauvegarder_image_RLE(const char *nom_fichier, pixel *pixels, int width, int height, int maxval) {
+    FILE *fp = fopen(nom_fichier, "wb");
+    if (!fp) { fprintf(stderr, "Impossible d'ouvrir le fichier %s en écriture\n", nom_fichier); return; }
+    fprintf(fp, "RLE\n%d %d\n%d\n", width, height, maxval);
+    int num_pixels = width * height, i = 0;
+    while (i < num_pixels) {
+        int run_length = 1;
+        while (i + run_length < num_pixels && run_length < 255 &&
+               pixels[i].rouge == pixels[i+run_length].rouge &&
+               pixels[i].vert == pixels[i+run_length].vert &&
+               pixels[i].bleu == pixels[i+run_length].bleu)
         {
-            parcours(node, region);
-            region++;
+            run_length++;
+        }
+        fputc(run_length, fp);
+        fputc(pixels[i].rouge, fp);
+        fputc(pixels[i].vert, fp);
+        fputc(pixels[i].bleu, fp);
+        i += run_length;
+    }
+    fclose(fp);
+}
+
+void generer_image_compressee(pixel *pixels, int width, int height, float seuil, int maxval) {
+    compresser_image(pixels, width, height, seuil);
+    appliquer_compression(pixels, width, height);
+    sauvegarder_image_RLE("compressed_rle.rle", pixels, width, height, maxval);
+}
+
+void decompresser_image(const char *fichier_rle, const char *fichier_ppm) {
+    FILE *fp = fopen(fichier_rle, "rb");
+    if (!fp) { fprintf(stderr, "Impossible d'ouvrir le fichier RLE %s\n", fichier_rle); exit(1); }
+    char header[4];
+    if (!fgets(header, sizeof(header), fp)) { fprintf(stderr, "Erreur lors de la lecture de l'en-tête RLE\n"); exit(1); }
+    if (strncmp(header, "RLE", 3) != 0) { fprintf(stderr, "Format RLE invalide\n"); exit(1); }
+    int width, height, maxval;
+    if (fscanf(fp, "%d %d\n%d\n", &width, &height, &maxval) != 3) { fprintf(stderr, "Erreur lors de la lecture du header RLE\n"); exit(1); }
+    int num_pixels = width * height;
+    pixel *pixels = malloc(num_pixels * sizeof(pixel));
+    if (!pixels) { fprintf(stderr, "Erreur d'allocation mémoire pour pixels dans la décompression\n"); exit(1); }
+    int i = 0;
+    while (i < num_pixels) {
+        int run_length = fgetc(fp);
+        if (run_length == EOF) break;
+        int r = fgetc(fp), g = fgetc(fp), b = fgetc(fp);
+        if (r == EOF || g == EOF || b == EOF) break;
+        for (int j = 0; j < run_length && i < num_pixels; j++) {
+            pixels[i].rouge = r;
+            pixels[i].vert = g;
+            pixels[i].bleu = b;
+            pixels[i].row = i / width;
+            pixels[i].col = i % width;
+            i++;
         }
     }
-
-    for (int i = 0; i < width * height; i++)
-    {
-        noeud *node = &legraphe[i];
-        pixel *p = node->pt;
-        int r = p->rouge;
-        int g = p->vert;
-        int b = p->bleu;
-        pixels[i] = (pixel){r, g, b, p->row, p->col};
+    fclose(fp);
+    FILE *out = fopen(fichier_ppm, "wb");
+    if (!out) { fprintf(stderr, "Impossible d'ouvrir le fichier %s pour l'écriture\n", fichier_ppm); exit(1); }
+    fprintf(out, "P6\n%d %d\n%d\n", width, height, maxval);
+    for (i = 0; i < num_pixels; i++) {
+        fputc(pixels[i].rouge, out);
+        fputc(pixels[i].vert, out);
+        fputc(pixels[i].bleu, out);
     }
-    sauvegarder_image_compressee("decompressed.ppm", decompressed_image, width, height);
-
-    free(decompressed_image);
+    fclose(out);
+    free(pixels);
 }
 
-int main(int argc, char *argv[])
-{
-    if (argc != 3)
-    {
-        fprintf(stderr, "Usage: %s fichier_entree seuil\n", argv[0]);
-        return 1;
-    }
-
-    FILE *fp = open_ppm(argv[1]);
-
-    char *nom_fichier_entree = argv[1];
-
+int main(int argc, char *argv[]) {
+    if (argc != 3) { fprintf(stderr, "Usage: %s fichier_entree seuil\n", argv[0]); return 1; }
+    const char *nom_fichier_entree = argv[1];
     float seuil = atof(argv[2]);
-
+    FILE *fp = open_ppm(nom_fichier_entree);
     int width, height, maxval;
-
     read_ppm_header(fp, &width, &height, &maxval);
-
     pixel *pixels = create_pixels(fp, width, height);
-
-    pixel *nouveaux_pixels = malloc(width * height * sizeof(pixel));
-
-    for (int i = 0; i < width * height; i++)
-    {
-        nouveaux_pixels[i] = pixels[i];
-    }
-
-    creer_graphe(pixels, width, height, seuil);
-
-    generer_image_compressee(pixels, width, height, seuil);
-
-    decompresser_image(pixels, width, height);
-
-
-    free(nouveaux_pixels);
-
+    fclose(fp);
+    generer_image_compressee(pixels, width, height, seuil, maxval);
+    free_graph(legraphe, width * height);
     free(pixels);
-
+    decompresser_image("compressed_rle.rle", "decompressed.ppm");
     return 0;
 }
