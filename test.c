@@ -2,16 +2,10 @@
 #include <stdlib.h>
 #include <math.h>
 #include <string.h>
+#include "test.h"
 
-typedef struct {
-    int rouge;
-    int vert;
-    int bleu;
-    int row;
-    int col;
-} pixel;
 
-struct noeud;
+typedef struct noeud;
 typedef struct arete {
     struct noeud *pt;
     float poids;
@@ -240,20 +234,4 @@ void decompresser_image(const char *fichier_rle, const char *fichier_ppm) {
     }
     fclose(out);
     free(pixels);
-}
-
-int main(int argc, char *argv[]) {
-    if (argc != 3) { fprintf(stderr, "Usage: %s fichier_entree seuil\n", argv[0]); return 1; }
-    const char *nom_fichier_entree = argv[1];
-    float seuil = atof(argv[2]);
-    FILE *fp = open_ppm(nom_fichier_entree);
-    int width, height, maxval;
-    read_ppm_header(fp, &width, &height, &maxval);
-    pixel *pixels = create_pixels(fp, width, height);
-    fclose(fp);
-    generer_image_compressee(pixels, width, height, seuil, maxval);
-    free_graph(legraphe, width * height);
-    free(pixels);
-    decompresser_image("compressed_rle.rle", "decompressed.ppm");
-    return 0;
 }
