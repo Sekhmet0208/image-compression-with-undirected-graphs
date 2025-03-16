@@ -1,4 +1,4 @@
-```markdown
+
 # Image Compression with Segmentation, RLE, and Graphical Interface
 
 ## Overview
@@ -26,7 +26,7 @@ This project implements a simple image compression technique in C that combines 
 
 To compile the project (including the GUI), run:
 
-```bash
+```
 gcc -o image_app gui.c test.c `pkg-config --cflags --libs gtk+-3.0` -lm
 ```
 
