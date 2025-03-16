@@ -102,7 +102,7 @@ int main(int argc, char *argv[]) {
     GtkWidget *threshold_label = gtk_label_new("Seuil:");
     gtk_box_pack_start(GTK_BOX(hbox), threshold_label, FALSE, FALSE, 0);
     GtkWidget *threshold_entry = gtk_entry_new();
-    gtk_entry_set_text(GTK_ENTRY(threshold_entry), "10.0"); // Valeur par défaut
+    gtk_entry_set_text(GTK_ENTRY(threshold_entry), "10.0");
     gtk_box_pack_start(GTK_BOX(hbox), threshold_entry, FALSE, FALSE, 0);
     
     GtkWidget *compress_button = gtk_button_new_with_label("Compresser l'image");
